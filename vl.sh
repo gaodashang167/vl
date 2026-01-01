@@ -27,7 +27,7 @@ work_dir="/etc/sing-box"
 config_dir="${work_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 
-GITHUB_URL="https://raw.githubusercontent.com/gaodashang167/vm-argo/main/hu.sh"
+GITHUB_URL="https://raw.githubusercontent.com/gaodashang167/vl/main/vl.sh"
 LOCAL_SCRIPT="${work_dir}/hu.sh"
 
 export vless_port=${PORT:-$(shuf -i 2000-65000 -n 1)}
