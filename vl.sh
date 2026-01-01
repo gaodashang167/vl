@@ -27,8 +27,8 @@ work_dir="/etc/sing-box"
 config_dir="${work_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 
-GITHUB_URL="https://raw.githubusercontent.com/gaodashang167/vm-argo/main/vless.sh"
-LOCAL_SCRIPT="${work_dir}/vless.sh"
+GITHUB_URL="https://raw.githubusercontent.com/gaodashang167/vm-argo/main/hu.sh"
+LOCAL_SCRIPT="${work_dir}/hu.sh"
 
 export vless_port=${PORT:-$(shuf -i 2000-65000 -n 1)}
 export argo_port=${ARGO_PORT:-8001}
@@ -56,7 +56,6 @@ check_service() {
 
 check_singbox() { check_service "sing-box" "${work_dir}/${server_name}"; }
 check_argo() { check_service "argo" "${work_dir}/argo"; }
-check_nginx() { command_exists nginx || { red "not installed"; return 2; }; check_service "nginx" "$(command -v nginx)"; }
 
 # 包管理
 manage_packages() {
@@ -119,8 +118,6 @@ install_singbox() {
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo ${work_dir}/qrencode
     
     uuid=$(cat /proc/sys/kernel/random/uuid)
-    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
-    nginx_port=$(shuf -i 2000-65000 -n 1)
     
     # 生成 Reality 密钥对
     output=$(/etc/sing-box/sing-box generate reality-keypair)
@@ -327,12 +324,6 @@ get_info() {
         red "Argo域名获取失败"
     fi
 
-    cat > ${work_dir}/url.txt << EOF
-${reality_link}
-
-${argo_link}
-EOF
-
     clear
     echo ""
     green "==================== 节点信息 ====================\n"
@@ -346,37 +337,17 @@ EOF
     fi
     echo ""
     
-    base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt && chmod 644 ${work_dir}/sub.txt
-    
-    green "订阅链接：http://${server_ip}:${nginx_port}/${password}\n"
-    $work_dir/qrencode "http://${server_ip}:${nginx_port}/${password}" 2>/dev/null
-    green "\nClash订阅：https://sublink.eooce.com/clash?config=http://${server_ip}:${nginx_port}/${password}"
-    green "Sing-box订阅：https://sublink.eooce.com/singbox?config=http://${server_ip}:${nginx_port}/${password}\n"
-    yellow "提示：Reality节点性能更好，推荐优先使用！\n"
-}
+    cat > ${work_dir}/url.txt << EOF
+${reality_link}
 
-# Nginx配置
-add_nginx_conf() {
-    if ! command_exists nginx; then red "nginx未安装"; return 1; else manage_service "nginx" "stop" > /dev/null 2>&1; pkill nginx > /dev/null 2>&1; fi
-    mkdir -p /etc/nginx/conf.d
-    cat > /etc/nginx/conf.d/sing-box.conf << EOF
-server {
-    listen $nginx_port; listen [::]:$nginx_port; server_name _;
-    add_header X-Frame-Options DENY; add_header X-Content-Type-Options nosniff;
-    location = /$password { alias /etc/sing-box/sub.txt; default_type 'text/plain; charset=utf-8'; add_header Cache-Control "no-cache"; }
-    location / { return 404; } location ~ /\. { deny all; access_log off; }
-}
+${argo_link}
 EOF
-    if [ ! -f "/etc/nginx/nginx.conf" ]; then
-        cat > /etc/nginx/nginx.conf << EOF
-user nginx; worker_processes auto; error_log /var/log/nginx/error.log; pid /run/nginx.pid;
-events { worker_connections 1024; }
-http { include /etc/nginx/mime.types; default_type application/octet-stream; access_log /var/log/nginx/access.log; sendfile on; keepalive_timeout 65; include /etc/nginx/conf.d/*.conf; }
-EOF
-    elif ! grep -q "include.*conf.d" /etc/nginx/nginx.conf; then
-        sed -i "/http {/a \    include /etc/nginx/conf.d/*.conf;" /etc/nginx/nginx.conf
-    fi
-    nginx -t >/dev/null 2>&1 && start_nginx || restart_nginx
+    
+    green "节点链接已保存到: ${work_dir}/url.txt"
+    $work_dir/qrencode "${reality_link}" 2>/dev/null
+    echo ""
+    $work_dir/qrencode "${argo_link}" 2>/dev/null
+    yellow "\n提示：Reality节点性能更好，推荐优先使用！\n"
 }
 
 # 服务管理
@@ -390,8 +361,6 @@ restart_singbox() { manage_service "sing-box" "restart"; }
 start_argo() { manage_service "argo" "start"; }
 stop_argo() { manage_service "argo" "stop"; }
 restart_argo() { manage_service "argo" "restart"; }
-start_nginx() { manage_service "nginx" "start"; }
-restart_nginx() { manage_service "nginx" "restart"; }
 
 # 卸载
 uninstall_singbox() {
@@ -407,24 +376,22 @@ uninstall_singbox() {
         rm /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service
         systemctl daemon-reload
     fi
-    rm -rf "${work_dir}" /etc/nginx/conf.d/sing-box.conf /usr/bin/vl
-    reading "\n是否卸载 Nginx？(y/n): " choice
-    [[ "$choice" == "y" || "$choice" == "Y" ]] && manage_packages uninstall nginx
+    rm -rf "${work_dir}" /usr/bin/hu
     green "\n卸载成功\n" && exit 0
 }
 
 # 创建快捷指令
 create_shortcut() {
-    yellow "\n配置快捷指令 vl..."
+    yellow "\n配置快捷指令 hu..."
     curl -sLo "$LOCAL_SCRIPT" "$GITHUB_URL"
     chmod +x "$LOCAL_SCRIPT"
     
     if [ ! -s "$LOCAL_SCRIPT" ]; then
         red "警告：从 GitHub 下载脚本失败！"
-        yellow "vl 命令可能需要网络通畅才能自动修复。"
+        yellow "hu 命令可能需要网络通畅才能自动修复。"
     fi
 
-    cat > "/usr/bin/vl" << EOF
+    cat > "/usr/bin/hu" << EOF
 #!/bin/bash
 if [ -s "$LOCAL_SCRIPT" ]; then
     bash "$LOCAL_SCRIPT" \$1
@@ -440,8 +407,8 @@ else
     fi
 fi
 EOF
-    chmod +x "/usr/bin/vl"
-    green "\n>>> 快捷指令 vl 创建成功！以后输入 vl 即可管理脚本 <<<\n"
+    chmod +x "/usr/bin/hu"
+    green "\n>>> 快捷指令 hu 创建成功！以后输入 hu 即可管理脚本 <<<\n"
 }
 
 # Alpine适配
@@ -492,10 +459,10 @@ EOF
 
 # 主菜单
 menu() {
-    singbox_status=$(check_singbox 2>/dev/null); nginx_status=$(check_nginx 2>/dev/null); argo_status=$(check_argo 2>/dev/null)
+    singbox_status=$(check_singbox 2>/dev/null); argo_status=$(check_argo 2>/dev/null)
     clear
     purple "\n=== VLESS-Reality + Argo 管理脚本 ===\n"
-    echo -e "Argo: ${argo_status} | Nginx: ${nginx_status} | Sing-box: ${singbox_status}\n"
+    echo -e "Argo: ${argo_status} | Sing-box: ${singbox_status}\n"
     green "1. 安装"
     red "2. 卸载"
     green "3. 查看节点信息"
@@ -510,15 +477,15 @@ while true; do
     case "${choice}" in
         1)
             if check_singbox >/dev/null 2>&1; then yellow "已安装"; create_shortcut; else
-                manage_packages install nginx jq tar openssl lsof coreutils
+                manage_packages install jq openssl lsof coreutils
                 install_singbox
                 if command_exists systemctl; then main_systemd_services; else alpine_openrc_services; change_hosts; rc-service sing-box restart; rc-service argo restart; fi
-                sleep 5; get_info; add_nginx_conf; create_shortcut
+                sleep 5; get_info; create_shortcut
             fi ;;
         2) uninstall_singbox ;;
         3) get_info ;;
         4) setup_argo_fixed ;;
-        5) restart_singbox && restart_argo && restart_nginx && green "重启成功" ;;
+        5) restart_singbox && restart_argo && green "重启成功" ;;
         0) exit 0 ;;
         *) red "无效选项" ;;
     esac
