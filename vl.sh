@@ -425,9 +425,16 @@ setup_argo_fixed() {
     reading "域名: " argo_domain
     reading "Token/Json: " argo_auth
     [ -z "$argo_domain" ] || [ -z "$argo_auth" ] && red "不能为空" && return
-    stop_argo >/dev/null 2>&1
+    
+    # 停止服务
+    if command_exists rc-service; then
+        rc-service argo stop >/dev/null 2>&1
+    else
+        systemctl stop argo >/dev/null 2>&1
+    fi
     
     if [[ $argo_auth =~ TunnelSecret ]]; then
+        # JSON 模式
         echo "$argo_auth" > "${work_dir}/tunnel.json"
         TUNNEL_ID=$(cut -d\" -f12 <<< "$argo_auth")
         cat > "${work_dir}/tunnel.yml" << EOF
@@ -441,23 +448,99 @@ ingress:
       noTLSVerify: true
   - service: http_status:404
 EOF
-        CMD_ARGS="/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1\""
-    else
+        
+        if command_exists rc-service; then
+            # Alpine OpenRC
+            cat > /etc/init.d/argo << 'EOFARGO'
+#!/sbin/openrc-run
+description="Cloudflare Tunnel"
+command="/bin/sh"
+command_args="-c '/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1 > /etc/sing-box/argo.log'"
+command_background=true
+pidfile="/var/run/argo.pid"
+EOFARGO
+            chmod +x /etc/init.d/argo
+            rc-service argo start
+        else
+            # Systemd
+            cat > /etc/systemd/system/argo.service << EOF
+[Unit]
+Description=Cloudflare Tunnel
+After=network.target
+[Service]
+Type=simple
+NoNewPrivileges=yes
+TimeoutStartSec=0
+ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1"
+Restart=on-failure
+RestartSec=5s
+[Install]
+WantedBy=multi-user.target
+EOF
+            systemctl daemon-reload
+            systemctl restart argo
+        fi
+        
+    elif [[ $argo_auth =~ ^[A-Za-z0-9_-]{100,}$ ]]; then
+        # Token 模式
         echo "hostname: $argo_domain" > "${work_dir}/tunnel.yml"
-        CMD_ARGS="/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $argo_auth 2>&1\""
-    fi
-
-    if command_exists rc-service; then 
-        sed -i "/^command_args=/c\\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1'\"" /etc/init.d/argo
-        rc-service argo restart
-    else 
-        sed -i "/^ExecStart=/c\\ExecStart=$CMD_ARGS" /etc/systemd/system/argo.service
-        systemctl daemon-reload
-        systemctl restart argo
+        
+        if command_exists rc-service; then
+            # Alpine OpenRC
+            cat > /etc/init.d/argo << EOFARGO
+#!/sbin/openrc-run
+description="Cloudflare Tunnel"
+command="/bin/sh"
+command_args="-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $argo_auth 2>&1 > /etc/sing-box/argo.log'"
+command_background=true
+pidfile="/var/run/argo.pid"
+EOFARGO
+            chmod +x /etc/init.d/argo
+            rc-service argo start
+        else
+            # Systemd
+            cat > /etc/systemd/system/argo.service << EOF
+[Unit]
+Description=Cloudflare Tunnel
+After=network.target
+[Service]
+Type=simple
+NoNewPrivileges=yes
+TimeoutStartSec=0
+ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $argo_auth 2>&1"
+Restart=on-failure
+RestartSec=5s
+[Install]
+WantedBy=multi-user.target
+EOF
+            systemctl daemon-reload
+            systemctl restart argo
+        fi
+    else
+        red "Token/Json 格式不正确"
+        return 1
     fi
 
     sleep 3
-    green "\n配置完成，正在刷新信息..." && get_info
+    
+    # 检查状态
+    if command_exists rc-service; then
+        if rc-service argo status | grep -q "started"; then
+            green "\n✓ Argo 固定隧道启动成功"
+        else
+            red "\n✗ Argo 启动失败，请查看日志: cat /etc/sing-box/argo.log"
+            return 1
+        fi
+    else
+        if systemctl is-active argo >/dev/null 2>&1; then
+            green "\n✓ Argo 固定隧道启动成功"
+        else
+            red "\n✗ Argo 启动失败，请查看日志: journalctl -u argo -n 50"
+            return 1
+        fi
+    fi
+    
+    green "配置完成，正在刷新信息..." && get_info
 }
 
 # 主菜单
