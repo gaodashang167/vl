@@ -441,20 +441,23 @@ ingress:
       noTLSVerify: true
   - service: http_status:404
 EOF
-        CMD_ARGS="-c '/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1'"
+        CMD_ARGS="/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1\""
     else
         echo "hostname: $argo_domain" > "${work_dir}/tunnel.yml"
-        CMD_ARGS="-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $argo_auth 2>&1'"
+        CMD_ARGS="/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $argo_auth 2>&1\""
     fi
 
     if command_exists rc-service; then 
-        sed -i "/^command_args=/c\\command_args=\"$CMD_ARGS\"" /etc/init.d/argo
+        sed -i "/^command_args=/c\\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1'\"" /etc/init.d/argo
+        rc-service argo restart
     else 
-        sed -i "/^ExecStart=/c\\ExecStart=/bin/sh $CMD_ARGS" /etc/systemd/system/argo.service
+        sed -i "/^ExecStart=/c\\ExecStart=$CMD_ARGS" /etc/systemd/system/argo.service
+        systemctl daemon-reload
+        systemctl restart argo
     fi
 
-    restart_argo
-    green "\n配置完成，正在刷新信息..." && sleep 3 && get_info
+    sleep 3
+    green "\n配置完成，正在刷新信息..." && get_info
 }
 
 # 主菜单
